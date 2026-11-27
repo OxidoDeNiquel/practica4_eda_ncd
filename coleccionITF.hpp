@@ -10,6 +10,7 @@
 #define COLECCIONITF_HPP
 
 #include "fecha.hpp"
+#include "pila.hpp"
 #include <cstddef>
 #include <iostream>
 #include <string>
@@ -44,39 +45,42 @@ template <typename T> bool anyadir(coleccionITF<T> &c, const T &i);
 // i.
 template <typename T> void actualizar(coleccionITF<T> &c, const T &i);
 
+// Borra del subárbol a el nodo con el máximo identificador y devuelve su ítem en d.
+// Precondición: a != nullptr.
+template <typename T> void borrarMax(typename coleccionITF<T>::Nodo *&p, T &d);
+
+// Si en el árbol de raíz apuntada por p hay un ítem con identificador ident,
+// lo borra y borrado = verdad. En caso contrario, p no se modifica y borrado = falso.
+template <typename T> void borrarRec(const string &ident, typename coleccionITF<T>::Nodo *&p, bool &borrado);
+
+
 // Si en c hay algún ítem con identificador igual a ident, lo borra de c.
 // En caso contrario, deja c igual.
 template <typename T> void borrar(const string &ident, coleccionITF<T> &c);
 
-// Devuelve verdad si y sólo si en c hay algún ítem con identificador igual a
-// ident.
+// Busca ident en el ABB bajando por la izquierda si es menor y por la derecha si es mayor.
 template <typename T> bool esta(const string &ident, const coleccionITF<T> &c);
 
-// Si en c hay algún ítem con identificador igual a ident, devuelve dicho ítem.
-// Parcial: la operación no está definida si en c no hay ningún ítem con
-// identificador igual a ident.
-template <typename T>
-T obtenerITF(const string &ident, const coleccionITF<T> &c);
+// Busca ident en el ABB igual que esta() y devuelve el ítem encontrado.
+// Parcial: se supone que ident está en c (si no, act sería nullptr).
+template <typename T> T obtenerITF(const string &ident, const coleccionITF<T> &c);
 
 // Devuelve la cadena resultante de concatenar los identificadores de todos los
 // ítems que hay en c con fecha estrictamente anterior a f, y separados entre sí
 // por la cadena separador.
-template <typename T>
-string obsoletos(const Fecha &f, const string &separador,
+template <typename T> string obsoletos(const Fecha &f, const string &separador,
                  const coleccionITF<T> &c);
 
 // Elimina de c todos los ítems con fecha estrictamente anterior a f.
 template <typename T> void purgar(const Fecha &f, coleccionITF<T> &c);
 
 // Devuelve verdad si y sólo si en c hay algún ítem i cuyo tema es igual a t.
-template <typename T>
-bool existeTema(const string &t, const coleccionITF<T> &c);
+template <typename T> bool existeTema(const string &t, const coleccionITF<T> &c);
 
 // Devuelve la cadena resultante de concatenar los identificadores de todos los
 // ítems que hay en c con tema igual a t, separados entre sí por la cadena
 // separador.
-template <typename T>
-string delTema(const string &t, const string &separador,
+template <typename T> string delTema(const string &t, const string &separador,
                const coleccionITF<T> &c);
 
 // Elimina de c todos los ítems i cuyo tema es igual a t.
@@ -131,17 +135,21 @@ template <typename T> struct coleccionITF {
   friend void avanza<T>(coleccionITF<T> &c);
 
 private:
-  // Representación en memoria dinámica mediante una lista simplemente enlazada
-  // ordenada ascendentemente (de menor a mayor) según el identificador del
-  // ítem, sin identificadores repetidos.
+  // Representación: árbol binario de búsqueda (ABB) en memoria dinámica,
+  // ordenado por identificador y sin identificadores repetidos.
   struct Nodo {
-    T dato;
-    Nodo *pNext;
+    T dato;         // Ítem almacenado en el nodo
+    Nodo *izq;      // Subárbol izquierdo: ítems con identificador menor que el de dato
+    Nodo *der;      // Subárbol derecho: ítems con identificador mayor que el de dato
   };
 
-  Nodo *primero;  // Puntero al primer nodo de la lista (nullptr si está vacía)
-  Nodo *iterador; // Puntero al siguiente nodo a visitar por el iterador
-  int total;      // Número total de ítems almacenados en la colección
+  template <typename U> friend void borrarMax(typename coleccionITF<U>::Nodo *&p, U &d);
+  template <typename U> friend void borrarRec(const string &ident, typename coleccionITF<U>::Nodo *&p, bool &borrado);
+
+  Nodo *raiz;       // Puntero a la raíz del ABB (nullptr si la colección está vacía)
+  Pila<Nodo*> iter; // Pila del iterador: nodos pendientes de visitar en el
+                    // recorrido in-orden (la cima es el siguiente a visitar)
+  int total;        // Número total de ítems almacenados en la colección
 };
 
 // Implementación de las operaciones del TAD genérico coleccionITF
@@ -210,80 +218,79 @@ template <typename T> void actualizar(coleccionITF<T> &c, const T &i) {
   }
 }
 
-template <typename T> void borrar(const string &ident, coleccionITF<T> &c) {
-  typename coleccionITF<T>::Nodo *act = c.primero;
-  typename coleccionITF<T>::Nodo *ant = nullptr;
-
-  // Buscamos el nodo conservando el anterior
-  while (act != nullptr && identificador(act->dato) < ident) {
-    ant = act;
-    act = act->pNext;
+template <typename T> void borrarMax(typename coleccionITF<T>::Nodo *&p, T &d){
+  typename coleccionITF<T>::Nodo *aux;
+  if(p->der == nullptr){
+    d=p->dato;
+    aux=p;
+    p=p->izq;
+    delete aux;
+  }else{
+    borrarMax<T>(p->der, d);
   }
+}
 
-  if (act != nullptr && identificador(act->dato) == ident) {
-    // Si es el primero de la lista
-    if (ant == nullptr) {
-      c.primero = act->pNext;
-    } else { // Si está por medio o al final
-      ant->pNext = act->pNext;
+template <typename T> void borrarRec(const string &ident, typename coleccionITF<T>::Nodo *&p, bool &borrado){
+  typename coleccionITF<T>::Nodo *aux;
+  if(p==nullptr){
+    borrado=false;
+  }else{
+    if(ident < identificador(p->dato)){
+      borrarRec<T>(ident, p->izq, borrado);
+    }else if(ident > identificador(p->dato)){
+      borrarRec<T>(ident, p->der, borrado);
+    }else{
+      if (p->izq == nullptr){
+        aux=p;
+        p=p->der;
+        delete aux;
+      }else{
+        borrarMax<T>(p->izq, p->dato);
+      }
+      borrado=true;
     }
+  }
+}
 
-    // Mantener válido el iterador si apuntaba al nodo eliminado
-    if (c.iterador == act) {
-      c.iterador = act->pNext;
-    }
-    delete act;
+template <typename T> void borrar(const string &ident, coleccionITF<T> &c) {
+  bool borrado;
+  borrarRec<T>(ident, c.raiz, borrado);
+  if(borrado){
     c.total--;
   }
 }
 
 template <typename T> bool esta(const string &ident, const coleccionITF<T> &c) {
-  // Ponemos el puntero en el primer nodo de la colección
-  typename coleccionITF<T>::Nodo *act = c.primero;
+  typename coleccionITF<T>::Nodo *act = c.raiz;
 
-  // Buscamos el identificador en la lista ordenada
-  while (act != nullptr && identificador(act->dato) < ident) {
-    act = act->pNext;
+  while(act!=nullptr && identificador(act->dato) != ident){
+    if(ident<identificador(act->dato)){
+      act=act->izq;
+    }else{
+      act=act->der;
+    }
   }
 
-  // Devolvemos true si encontramos el ítem
-  return act != nullptr && identificador(act->dato) == ident;
+  return (act!=nullptr);
 }
 
-template <typename T>
-T obtenerITF(const string &ident, const coleccionITF<T> &c) {
-  // Ponemos el puntero en el primer nodo de la colección
-  typename coleccionITF<T>::Nodo *act = c.primero;
+template <typename T> T obtenerITF(const string &ident, const coleccionITF<T> &c) {
+  typename coleccionITF<T>::Nodo *act = c.raiz;
 
-  // Buscamos el identificador en la lista ordenada
-  while (act != nullptr && identificador(act->dato) < ident) {
-    act = act->pNext;
+  while(act!=nullptr && identificador(act->dato) != ident){
+    if(ident<identificador(act->dato)){
+      act=act->izq;
+    }else{
+      act=act->der;
+    }
   }
 
-  // Devolvemos el ítem (precondición: existe un ítem con identificador ident)
   return act->dato;
 }
 
-template <typename T>
-string obsoletos(const Fecha &f, const string &separador,
+template <typename T> string obsoletos(const Fecha &f, const string &separador,
                  const coleccionITF<T> &c) {
-  string resultado = "";
-  bool esPrimero = true;
-  typename coleccionITF<T>::Nodo *act = c.primero;
-
-  // Recorremos la lista en orden lexicográfico de identificadores
-  while (act != nullptr) {
-    if (anterior(fecha(act->dato), f)) {
-      if (!esPrimero) {
-        resultado += separador;
-      }
-      resultado += identificador(act->dato);
-      esPrimero = false;
-    }
-    act = act->pNext;
-  }
-
-  return resultado;
+  return "";
 }
 
 template <typename T> void purgar(const Fecha &f, coleccionITF<T> &c) {
@@ -346,8 +353,7 @@ template <typename T> void zanjarTema(const string &t, coleccionITF<T> &c) {
   }
 }
 
-template <typename T>
-bool existeTema(const string &t, const coleccionITF<T> &c) {
+template <typename T> bool existeTema(const string &t, const coleccionITF<T> &c) {
   typename coleccionITF<T>::Nodo *act = c.primero;
   while (act != nullptr) {
     if (tema(act->dato) == t) {
@@ -358,8 +364,7 @@ bool existeTema(const string &t, const coleccionITF<T> &c) {
   return false;
 }
 
-template <typename T>
-string delTema(const string &t, const string &separador,
+template <typename T> string delTema(const string &t, const string &separador,
                const coleccionITF<T> &c) {
   string resultado = "";
   bool esPrimero = true;
@@ -392,16 +397,29 @@ template <typename T> void iniciarIterador(coleccionITF<T> &c) {
 }
 
 template <typename T> bool existeSiguiente(const coleccionITF<T> &c) {
-  return c.iterador != nullptr;
+  return !esVacia(c.iter);
 }
 
 template <typename T> T siguiente(const coleccionITF<T> &c) {
-  return c.iterador->dato;
+  Nodo *aux;
+  bool error;
+
+  cima(c.iter, aux, error);
+
+  return aux->dato;
 }
 
 template <typename T> void avanza(coleccionITF<T> &c) {
-  if (c.iterador != nullptr) {
-    c.iterador = c.iterador->pNext;
+  Nodo *aux;
+  bool error;
+
+  cima(c.iter, aux, error);
+  desapilar(c.iter);
+  aux=aux->der;
+
+  while(aux!=nullptr){
+    apilar(c.iter, aux);
+    aux=aux->izq;
   }
 }
 
