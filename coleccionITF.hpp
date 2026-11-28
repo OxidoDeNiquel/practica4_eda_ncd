@@ -71,6 +71,12 @@ template <typename T> T obtenerITF(const string &ident, const coleccionITF<T> &c
 template <typename T> string obsoletos(const Fecha &f, const string &separador,
                  const coleccionITF<T> &c);
 
+// Recorre en post-orden el árbol de raíz apuntada por p y añade a resultado
+// (separados por separador) los identificadores de los ítems con fecha
+// estrictamente anterior a f.
+template <typename T> void obsoletosRec(const Fecha &f, const string &separador,
+                  typename coleccionITF<T>::Nodo *p, string &resultado);
+
 // Elimina de c todos los ítems con fecha estrictamente anterior a f.
 template <typename T> void purgar(const Fecha &f, coleccionITF<T> &c);
 
@@ -145,6 +151,8 @@ private:
 
   template <typename U> friend void borrarMax(typename coleccionITF<U>::Nodo *&p, U &d);
   template <typename U> friend void borrarRec(const string &ident, typename coleccionITF<U>::Nodo *&p, bool &borrado);
+  template <typename U> friend void obsoletosRec(const Fecha &f, const string &separador,
+                                                 typename coleccionITF<U>::Nodo *p, string &resultado);
 
   Nodo *raiz;       // Puntero a la raíz del ABB (nullptr si la colección está vacía)
   Pila<Nodo*> iter; // Pila del iterador: nodos pendientes de visitar en el
@@ -290,7 +298,25 @@ template <typename T> T obtenerITF(const string &ident, const coleccionITF<T> &c
 
 template <typename T> string obsoletos(const Fecha &f, const string &separador,
                  const coleccionITF<T> &c) {
-  return "";
+  string resultado = "";
+  obsoletosRec<T>(f, separador, c.raiz, resultado);
+  return resultado;
+}
+
+template <typename T>
+void obsoletosRec(const Fecha &f, const string &separador,
+                  typename coleccionITF<T>::Nodo *p, string &resultado){
+  if(p!=nullptr){
+    obsoletosRec<T>(f, separador, p->izq, resultado);
+    obsoletosRec<T>(f, separador, p->der, resultado);
+
+    if(anterior(fecha(p->dato), f)){
+      if(resultado!=""){
+        resultado += separador;
+      }
+      resultado += identificador(p->dato);
+    }
+  }
 }
 
 template <typename T> void purgar(const Fecha &f, coleccionITF<T> &c) {
@@ -401,7 +427,7 @@ template <typename T> bool existeSiguiente(const coleccionITF<T> &c) {
 }
 
 template <typename T> T siguiente(const coleccionITF<T> &c) {
-  Nodo *aux;
+  typename coleccionITF<T>::Nodo *aux;
   bool error;
 
   cima(c.iter, aux, error);
@@ -410,7 +436,7 @@ template <typename T> T siguiente(const coleccionITF<T> &c) {
 }
 
 template <typename T> void avanza(coleccionITF<T> &c) {
-  Nodo *aux;
+  typename coleccionITF<T>::Nodo *aux;
   bool error;
 
   cima(c.iter, aux, error);
